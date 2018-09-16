@@ -8,11 +8,11 @@
 # Weights from Caffe converted using https://github.com/ethereon/caffe-tensorflow      #
 ########################################################################################
 
-#want to pass in category, layer, and number of images?
-#need to get mean of each fm at each layer, can then eval it, eg   spatmean2=tf.reduce_mean(postSSN2,[1,2]) 
-#later eval      digresp2.append(spatmean2.eval(feed_dict={x: batch}))
-#run for all cats for given layer and save featvecs, uhh i guess ishould just run for all layers
-#for each category, do a batch
+''' This file is used to run vgg16 on binary object detection tasks with attention applied according to the given parameters.
+  It requires data files available on dryad.
+  It saves performance broken down into true positives and true negatives and optionally saves activity of the network at intermediate layers.
+Contact: gracewlindsay@gmail.com
+'''
 
 
 import tensorflow as tf
@@ -559,7 +559,7 @@ if __name__ == '__main__':
 	    TNscore[ai]=np.sum(tn_score==tnlabs,axis=0)/(bsize*1.0);  #tn_score #catSV.score(tn_resp,testlabels0)
 
             if rec_activity: 
-                resp_list = tf.run([vgg.smean1_1,vgg.smean1_2,vgg.smean2_1,vgg.smean2_1,vgg.smean2_2,vgg.smean3_1,vgg.smean3_2,vgg.smean3_3,vgg.smean4_1,vgg.smean4_2,vgg.smean4_3, vgg.smean5_1,vgg.smean5_2,vgg.smean5_3],feed_dict={vgg.imgs: tp_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12]}) #layer, cat, batchim, featmap
+                resp_list = sess.run([vgg.smean1_1,vgg.smean1_2,vgg.smean2_1,vgg.smean2_1,vgg.smean2_2,vgg.smean3_1,vgg.smean3_2,vgg.smean3_3,vgg.smean4_1,vgg.smean4_2,vgg.smean4_3, vgg.smean5_1,vgg.smean5_2,vgg.smean5_3],feed_dict={vgg.imgs: tp_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12]}) #layer, cat, batchim, featmap
                 tp_resps1[0,:,ci,ai]=np.mean(resp_list[0],axis=0); tp_resps2[0,:,ci,ai]=np.mean(resp_list[1],axis=0); 
                 tp_resps2[0,:,ci,ai]=np.mean(resp_list[2],axis=0); tp_resps2[1,:,ci,ai]=np.mean(resp_list[3],axis=0); 
                 tp_resps3[0,:,ci,ai]=np.mean(resp_list[4],axis=0); tp_resps3[1,:,ci,ai]=np.mean(resp_list[5],axis=0);
@@ -567,7 +567,7 @@ if __name__ == '__main__':
                 tp_resps4[1,:,ci,ai]=np.mean(resp_list[8],axis=0); tp_resps4[2,:,ci,ai]=np.mean(resp_list[9],axis=0);
                 tp_resps5[0,:,ci,ai]=np.mean(resp_list[10],axis=0); tp_resps5[1,:,ci,ai]=np.mean(resp_list[11],axis=0);
                 tp_resps5[2,:,ci,ai]=np.mean(resp_list[12],axis=0);
-                resp_list = tf.run([vgg.smean1_1,vgg.smean1_2,vgg.smean2_1,vgg.smean2_1,vgg.smean2_2,vgg.smean3_1,vgg.smean3_2,vgg.smean3_3,vgg.smean4_1,vgg.smean4_2,vgg.smean4_3, vgg.smean5_1,vgg.smean5_2,vgg.smean5_3],feed_dict={vgg.imgs: tn_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12]}) #layer, cat, im, featmap
+                resp_list = sess.run([vgg.smean1_1,vgg.smean1_2,vgg.smean2_1,vgg.smean2_1,vgg.smean2_2,vgg.smean3_1,vgg.smean3_2,vgg.smean3_3,vgg.smean4_1,vgg.smean4_2,vgg.smean4_3, vgg.smean5_1,vgg.smean5_2,vgg.smean5_3],feed_dict={vgg.imgs: tn_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12]}) #layer, cat, im, featmap
                 tn_resps1[0,:,ci,ai]=np.mean(resp_list[0],axis=0); tn_resps2[0,:,ci,ai]=np.mean(resp_list[1],axis=0); 
                 tn_resps2[0,:,ci,ai]=np.mean(resp_list[2],axis=0); tn_resps2[1,:,ci,ai]=np.mean(resp_list[3],axis=0); 
                 tn_resps3[0,:,ci,ai]=np.mean(resp_list[4],axis=0); tn_resps3[1,:,ci,ai]=np.mean(resp_list[5],axis=0);
