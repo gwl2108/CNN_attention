@@ -1,21 +1,23 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
+import matplotlib as mpl
 
 data_path=''
-perfff=np.zeros((20,13))*np.nan
-beststrg=np.zeros((20,13))
+perfff=np.zeros((8,13))*np.nan
+beststrg=np.zeros((8,13))
 
-perfffb=np.zeros((20,13))*np.nan
-beststrgb=np.zeros((20,13))
+perfffb=np.zeros((8,13))*np.nan
+beststrgb=np.zeros((8,13))
 #plt.plot([0, 1])
-ma=1; bd=1
-for ci in range(20):
+for ci in range(8):
 	#plt.subplot(4,5,ci+1)
 	for li in range(13):
-		savstr='LRcatattn'+str(ci)+'c_'+str(li)+'a'+str(ma)+'bd'+str(bd)+'_im'+str(2)+'sCOMB.npz'
-		savstrb='LRGRADcatattn'+str(ci)+'c_'+str(li)+'a'+str(ma)+'bd'+str(bd)+'_im'+str(2)+'.npz'#these need to be renamed according to the format in the Object_Performance.py if you've run the simulation yourself rather than downloaded performance data from dryad
+		savstrb='attnGRAD1Ntraindetect2_40b_o'+str((ci+1)*20)+'_L'+str(li)+'TFP.npz' #these need to be renamed according to the format in the Ori_Performance.py if you've run the simulation yourself rather than downloaded performance data from dryad
+		savstr='attnTCtraindetect2_40b_o'+str((ci+1)*20)+'_L'+str(li)+'TFP.npz';
 
 		F=np.load(data_path+savstr); TP=F['arr_0']; TN=F['arr_1']
+                print(TP)
 		BLperf=((TP+TN)/2)[0]
 		perfff[ci,li]=np.nanmax((TP+TN)/2-BLperf)*100; beststrg[ci,li]=np.nanargmax((TP+TN)/2-BLperf)
 		F=np.load(data_path+savstrb); TP=F['arr_0']; TN=F['arr_1']
@@ -35,5 +37,3 @@ ax1.set_xticks([1,3,5,7,9,11,13])
 
 
 plt.show()
-
-

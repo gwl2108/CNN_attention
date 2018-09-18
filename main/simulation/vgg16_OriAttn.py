@@ -8,7 +8,7 @@
 # Weights from Caffe converted using https://github.com/ethereon/caffe-tensorflow      #
 ########################################################################################
 
-''' This file is used to run vgg16 on binary object detection tasks with attention applied according to the given parameters.
+''' This file is used to run vgg16 on binary orientation detection tasks with attention applied according to the given parameters.
   It requires data files available on dryad.
   It saves performance broken down into true positives and true negatives and optionally saves activity of the network at intermediate layers.
 Contact: gracewlindsay@gmail.com
@@ -18,185 +18,125 @@ Contact: gracewlindsay@gmail.com
 import tensorflow as tf
 import numpy as np
 from scipy.misc import imread, imresize
-from sklearn import svm
 import pickle
 
-
-
-#SET VARIABLES HERE:
-imtype=1; #images: 1=merge, 2=array
-cat=0 #0-19 for which object category to attend to and readout for
-layer = 0 #0-12 for which convolutional layer to apply attention at (if >12, will apply at all layers at 1/10th strength)
+attn2oriA=40 # ori attn applied to: 0, 20, 40, 60, 80, 100, 120, 140, or 160
+lyr=12 #layer attention applied at: 0-12 or 13 for all layers (at 1/10th strength)
 appwith = 'TCs' #what values to apply attention according to: 'TCs' or 'GRADs'
 astrgs=np.arange(0,1.,.5) #attention strengths (betas)
 TCpath='/rigel/theory/users/gwl2108/VGG16'  #folder with tuning curve and gradient files 
 weight_path = '/rigel/theory/users/gwl2108/VGG16' #folder with network and classifier weights
 impath='/rigel/theory/users/gwl2108/VGG16' #folder where image files are kept
 save_path = '/rigel/theory/users/gwl2108/VGG16' #where to save the recording and performance files
-Ncats = 20 #change to 5 if only using the categories available in the dryad files
 rec_activity = True #record and save activity or no
 
-imperim=5
-traintype=3; #shouldnt be changed
-bsize=15*imperim; # total number of images in each (true pos and true neg) class
-impercat=np.floor(bsize/(Ncats-1)*1.); leftov=bsize%(Ncats-1)
-bd=1; #bidirect or pos only (0)
-attype=1 #1=mult, 2=add, 
+savstr='OriAttn'+'_a'+appwith+'_'+str(attn2oriA)+'o'+str(lyr)+'l'
+bnum=1; bsize=50; #100 total
+freq=40; stimN=2; 
 
 
-if attype==1:
-	astrgs=astrgs
-elif attype==2:
-        lyrBL=[20,100,150,150,240,240,150,150,80,20,20,10,1]
 
+def get_noisyori(bsize):
+	 #pick random indices [w replacement]
+	 or_inds=np.random.randint(0,np.shape(orimat)[0],bsize)
+	 batch=orimat[or_inds,:,:,:]; labels=orilabels[or_inds]
+	 rsamp=np.random.choice(bsize,int(bsize*.4),False)
+	 for bi in rsamp:
+	     a,b,c,d=np.random.choice(224,[4]);
+	     #print(a,b,c,d)
+	     batch[bi,:,np.minimum(a,b):np.maximum(a,b),:]=0	     
+	     batch[bi,np.minimum(c,d):np.maximum(c,d),:,:]=0
+	 batch=batch+np.random.normal(0,20,[bsize,224,224,3])*(np.random.normal(0,1,[bsize,224,224,3])>0)
+	 return batch,labels.T
 
-def make_gamats(oind,svec): #gradient-based attention
+def make_amats(oind,svec): #using TCs
 	attnmats=[]; 
-	with open(TCpath+'/CATgradsDetectTrainTCs_im'+str(imtype)+'.txt', "rb") as fp:   #Pickling
- 	  		b = pickle.load(fp)
-
-	for li in range(2):
-	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=0)
-	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
-	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
-	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((224,224,64))+np.tile(aval,[224,224,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[224,224,1])*svec[li]*lyrBL[li]; #amat[amat<0]=0
-          #amat=np.ones((224,224,64))+np.tile(aval,[224,224,1])*svec[li]; amat[amat<0]=0
-	  attnmats.append(amat)
-	  #print amat
-	for li in range(2,4):
-	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=0)
-	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
-	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((112,112,128))+np.tile(aval,[112,112,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[112,112,1])*svec[li]*lyrBL[li]; #amat[amat<0]=0
-
-	  attnmats.append(amat)
-	for li in range(4,7):
-	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=0)
-	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
-	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
-	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((56,56,256))+np.tile(aval,[56,56,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[56,56,1])*svec[li]*lyrBL[li]; #amat[amat<0]=0
-	  attnmats.append(amat)
-	for li in range(7,10):
-	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=0)
-	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
-	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
-	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((28,28,512))+np.tile(aval,[28,28,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[28,28,1])*svec[li]*lyrBL[li]; #amat[amat<0]=0
-	  attnmats.append(amat)
-	for li in range(10,13):
-	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=0)
-	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
-	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
-	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((14,14,512))+np.tile(aval,[14,14,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[14,14,1])*svec[li]*lyrBL[li]; #amat[amat<0]=0
-	  attnmats.append(amat)
-	  #print amat
-	return attnmats
-
-def make_amats(oind,svec): #tuning-based attention
-
-	attnmats=[];
-	with open(TCpath+'/featvecs20_train35_c.txt', "rb") as fp:   #Pickling
+	with open(TCpath+"/featvecs_ORIgrats40Astd.txt", "rb") as fp:   # Unpickling
  	  b = pickle.load(fp)
 	for li in range(2):
-	  fv=b[li]; fmvals=np.squeeze(fv[oind,:]) 
-
+	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])
 	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
 	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
 	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((224,224,64))+np.tile(aval,[224,224,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[224,224,1])*svec[li]*lyrBL[li]; 
+          amat=np.ones((224,224,64))+np.tile(aval,[224,224,1])*svec[li]; amat[amat<0]=0
 	  attnmats.append(amat)
-	  #print amat
 	for li in range(2,4):
-	  fv=b[li]; fmvals=np.squeeze(fv[oind,:]) 
+	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])
 	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
 	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
 	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((112,112,128))+np.tile(aval,[112,112,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[112,112,1])*svec[li]*lyrBL[li]; 
-
+	  amat=np.ones((112,112,128))+np.tile(aval,[112,112,1])*svec[li]; amat[amat<0]=0
 	  attnmats.append(amat)
 	for li in range(4,7):
-	  fv=b[li]; fmvals=np.squeeze(fv[oind,:]) 
+	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])
 	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
 	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
 	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((56,56,256))+np.tile(aval,[56,56,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[56,56,1])*svec[li]*lyrBL[li]; 
-
+	  amat=np.ones((56,56,256))+np.tile(aval,[56,56,1])*svec[li]; amat[amat<0]=0
 	  attnmats.append(amat)
 	for li in range(7,10):
 	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])
 	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
 	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
 	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((28,28,512))+np.tile(aval,[28,28,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[28,28,1])*svec[li]*lyrBL[li]; 
-
+	  amat=np.ones((28,28,512))+np.tile(aval,[28,28,1])*svec[li]; amat[amat<0]=0
 	  attnmats.append(amat)
 	for li in range(10,13):
 	  fv=b[li]; fmvals=np.squeeze(fv[oind,:])
 	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
 	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
 	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
-	  if bd==0:
-		aval[aval<0]=0
-	  if attype==1:
-          	amat=np.ones((14,14,512))+np.tile(aval,[14,14,1])*svec[li]; amat[amat<0]=0
-	  elif attype==2:
-		amat=np.tile(aval,[14,14,1])*svec[li]*lyrBL[li]; 
+	  amat=np.ones((14,14,512))+np.tile(aval,[14,14,1])*svec[li]; amat[amat<0]=0
+	  attnmats.append(amat)
+	return attnmats
+
+def make_gamats(oind,svec): #using gradients
+	attnmats=[]; 
+	with open(TCpath+'/DetectgradTrain2OriTCs40.txt', "rb") as fp:   #Pickling
+ 	  b = pickle.load(fp)
+	for li in range(2):
+	  fv=b[li]; fmvals=-np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=(0,1)) #1N
+	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
+	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
+	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
+          amat=np.ones((224,224,64))+np.tile(aval,[224,224,1])*svec[li]; amat[amat<0]=0
 	  attnmats.append(amat)
 	  #print amat
+	for li in range(2,4):
+	  fv=b[li]; fmvals=-np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=(0,1))
+	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
+	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
+	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
+	  amat=np.ones((112,112,128))+np.tile(aval,[112,112,1])*svec[li]; amat[amat<0]=0
+	  attnmats.append(amat)
+	for li in range(4,7):
+	  fv=b[li]; fmvals=-np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=(0,1))
+	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
+	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
+	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
+	  amat=np.ones((56,56,256))+np.tile(aval,[56,56,1])*svec[li]; amat[amat<0]=0
+	  attnmats.append(amat)
+	for li in range(7,10):
+	  fv=b[li]; fmvals=-np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=(0,1))
+	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
+	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
+	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
+	  amat=np.ones((28,28,512))+np.tile(aval,[28,28,1])*svec[li]; amat[amat<0]=0
+	  attnmats.append(amat)
+	for li in range(10,13):
+	  fv=b[li]; fmvals=-np.squeeze(fv[oind,:])/np.amax(np.abs(fv),axis=(0,1))
+	  #fmvals=np.random.permutation(fmvals)# shuffle vals across feat maps
+	  aval=np.expand_dims(np.expand_dims(fmvals,axis=0),axis=0); #ori, fm
+	  aval[aval==np.inf]=0; aval[aval==-np.inf]=0; aval=np.nan_to_num(aval)
+	  amat=np.ones((14,14,512))+np.tile(aval,[14,14,1])*svec[li]; amat[amat<0]=0
+	  attnmats.append(amat)
+	  
 	return attnmats
 
 
-
-class vgg16: 
+class vgg16:
     def __init__(self, imgs, labs=None, weights=None, sess=None):
+
         self.imgs = imgs
         self.convlayers()
         self.fc_layers()
@@ -454,7 +394,6 @@ class vgg16:
             self.fc3l = tf.nn.bias_add(tf.matmul(self.fc2, self.fc3w), self.fc3b)
             self.parameters += [self.fc3w, self.fc3b]
 
-
     def load_weights(self, weight_file, sess):
         weights = np.load(weight_file)
         keys = sorted(weights.keys()); keys=keys[0:-2] #so that last layer weights arent loaded
@@ -463,98 +402,67 @@ class vgg16:
             print i, k, np.shape(weights[k])
             sess.run(self.parameters[i].assign(weights[k]))
 
+
+
+  
+
+
+
 if __name__ == '__main__':
-    descat=cat 
-    lyr=layer 
-    sess = tf.Session()
-    labs = tf.placeholder(tf.int32, [bsize,1])
-    imgs = tf.placeholder(tf.float32, [bsize, 224, 224, 3])
-    vgg = vgg16(imgs=imgs, labs=labs, weights=weight_path+'/vgg16_weights.npz', sess=sess)
-    savstr='ObjectAttn'+'_a'+appwith+'_'+str(descat)+'c'+str(lyr)+'l_'+'a'+str(attype)+'bd'+str(bd)+'_im'+str(imtype)
 
-    saver3 = tf.train.Saver({"fc3": vgg.fc3w, "fcb3": vgg.fc3b})
-    saver3.restore(sess,  weight_path+"/catbin_"+str(descat)+".ckpt")
+    laybins=np.zeros((13));
+    if lyr>12:
+		laybins=np.ones((13)); astrgs=astrgs/10.0
+    else:
+		laybins[lyr]=1;  
 
-    if imtype==1:
-      descatpics=np.load(impath+'/merg5_c'+str(descat)+'.npz')['arr_0'];
-    elif imtype==2:
-      descatpics=np.load(impath+'/arr5_c'+str(descat)+'.npz')['arr_0'];
-    elif imtype==3:
-    	descatpics=np.load(impath+'/cats20_test15_c.npy');
+    attn2ori=attn2oriA/20; attn2oriI=attn2oriA/10;
+    batch=np.zeros((bsize,224,224,3)); tlabels=np.zeros((bsize))
+    imtype=1 #only one kind of image here
+    #load up images and labels
+    if imtype==1:	
+      oriload=np.load(impath+'/Stim'+str(stimN)+'Constr5'+str(freq)+'.npz')
+      orimat=oriload['arr_0']; orilabels=oriload['arr_1']/20; colStrlab=oriload['arr_2']; stimlocs=oriload['arr_3']
+      del oriload
+      check=orilabels==attn2ori # find images that have attended ori
+      im_inds=np.where(np.sum(check,axis=1)); im_inds=np.squeeze(im_inds)
+      tp_batch=orimat[im_inds[0:bsize],:,:,:]
+      im_inds=np.where(np.sum(check,axis=1)==0); im_inds=np.squeeze(im_inds)
+      tn_batch=orimat[im_inds[0:bsize],:,:,:]
+      del orimat
 
-    tp_batch=np.zeros((bsize,224,224,3)); tplabs=np.ones((bsize,1))
-    tn_batch=np.zeros((bsize,224,224,3)); tnlabs=np.zeros((bsize,1))
-    TPscore=np.zeros((len(astrgs))); TNscore=np.zeros((len(astrgs))); #FN=np.zeros((len(str_vec),xval)); TN=np.zeros((len(str_vec),xval))
 
     if rec_activity:
         tp_resps1=np.ones((2,bsize,64,len(astrgs))); tp_resps2=np.ones((2,bsize,128,len(astrgs)));  tp_resps3=np.ones((3,bsize,256,len(astrgs)));
         tp_resps4=np.ones((3,bsize,512,len(astrgs))); tp_resps5=np.ones((3,bsize,512,len(astrgs)));
         tn_resps1=np.ones((2,bsize,64,len(astrgs))); tn_resps2=np.ones((2,bsize,128,len(astrgs)));  tn_resps3=np.ones((3,bsize,256,len(astrgs)));
         tn_resps4=np.ones((3,bsize,512,len(astrgs))); tn_resps5=np.ones((3,bsize,512,len(astrgs)));
+
+    sess = tf.Session()
+    imgs = tf.placeholder(tf.float32, [bsize, 224, 224, 3])
+    labs = tf.placeholder(tf.int32, [bsize,1])
+    vgg = vgg16(imgs, labs=labs,weights=weight_path+'/vgg16_weights.npz', sess=sess)
+
+    saver3 = tf.train.Saver({"fc3": vgg.fc3w, "fcb3": vgg.fc3b})
+    saver3.restore(sess,  weight_path+"/oribin800_"+str(attn2ori)+".ckpt")
+    tplabs=np.ones((bsize,1))
+    tnlabs=np.zeros((bsize,1))
+    TPscore=np.zeros((len(astrgs))); TNscore=np.zeros((len(astrgs)));
+
     with sess.as_default():
-	np.random.seed(10) #so each layer has same images etc
-	if imtype==3:
-	   tp_batch=descatpics[descat]
-	else:
-	   for pii in range(15):
-		tp_batch[pii*imperim:(pii+1)*imperim,:,:,:]=descatpics[pii,np.random.choice(19*5,imperim),:,:,:]	
-	   del descatpics
-
-	othercs=np.arange(Ncats); othercs=othercs[othercs!=descat]; cii=0
-	if imtype==3:
-		othercs=np.random.choice(othercs,15)
-	else:
-		imspercats=np.ones((Ncats-1))*impercat; imspercats[np.random.choice(Ncats-1,leftov)]+=1
-	print Ncats, type(descat), othercs
-	for ci in range(len(othercs)):
-
-	  if imtype==1:
-	
-          	ocatpicsF=np.load(impath+'/merg5_c'+str(othercs[ci])+'.npz') ;
-	  	ocatpics=ocatpicsF['arr_0']; ocatlabs=ocatpicsF['arr_1']; noncind=np.where(ocatlabs[0,:]!=descat)
-		del ocatpicsF
-	  	tn_batch[cii:cii+imspercats[ci],:,:,:]=ocatpics[np.random.choice(15,imspercats[ci]),np.random.choice(noncind[0],imspercats[ci]),:,:,:] #can choose whatever from first dimen cuz know its not descat, then need to screen for not descat to pick from second column. number of images per other cat determined by total number
-		del ocatpics
-	        cii+=imspercats[ci]
-	  elif imtype==2:
-	
-          	ocatpicsF=np.load(impath+'/arr5_c'+str(othercs[ci])+'.npz') ;
-	  	ocatpics=ocatpicsF['arr_0']; ocatlabs=ocatpicsF['arr_1']; 
-		del ocatpicsF
-		for pici in range(int(imspercats[ci])):
-			pic=np.random.choice(15); binocat=np.sum(np.squeeze(ocatlabs[pic,:,:])==descat,axis=1)
-			print binocat	
-			noncind=np.where(binocat==0) #need to check that all 3 others arent descat
-	  		tn_batch[cii+pici:cii+pici+1,:,:,:]=ocatpics[pic,np.random.choice(noncind[0]),:,:,:]
-		del ocatpics
-	        cii+=imspercats[ci]
-
-
-	  elif imtype==3:
-	
-          	ocatpicsF=descatpics[othercs[ci]]  
-		tn_batch[ci,:,:,:]=ocatpicsF[np.random.choice(15),:,:,:];
-		del ocatpicsF
-
-
-
-	laybins=np.zeros((13)); 
-	if lyr>12:
-		laybins=np.ones((13)); astrgs=astrgs/10.0
-	else:
-		 laybins[lyr]=1;  
-
 	ai=-1
 	for astrg in astrgs: 
 	    ai+=1
-            if appwith == 'TCs':
-	        attnmats=make_amats(descat,laybins*astrg) 
+            if appwith=='TCs':
+	        attnmats=make_amats(attn2ori,laybins*astrg) 
             elif appwith=='GRADs':
-	        attnmats=make_gamats(descat,laybins*astrg) 
-	    tp_score=vgg.guess.eval(feed_dict={vgg.imgs:tp_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12] })
-	    tn_score=vgg.guess.eval(feed_dict={vgg.imgs:tn_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12] })
-	    TPscore[ai]=np.sum(tp_score==tplabs,axis=0)/(bsize*1.0); #tp_score 
-	    TNscore[ai]=np.sum(tn_score==tnlabs,axis=0)/(bsize*1.0);  #tn_score 
+	        attnmats=make_gamats(attn2ori,laybins*astrg) #gradients!
+
+	    tp_score=preds=vgg.guess.eval(feed_dict={vgg.imgs:tp_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12] })
+	    tn_score=preds=vgg.guess.eval(feed_dict={vgg.imgs:tn_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12] })
+	    TPscore[ai]=np.sum(tp_score==tplabs,axis=0)/(bsize*1.0); 
+	    TNscore[ai]=np.sum(tn_score==tnlabs,axis=0)/(bsize*1.0);  
+	    print astrg, TPscore[ai], TNscore[ai]
 
             if rec_activity: 
                 resp_list = sess.run([vgg.smean1_1,vgg.smean1_2,vgg.smean2_1,vgg.smean2_2,vgg.smean3_1,vgg.smean3_2,vgg.smean3_3,vgg.smean4_1,vgg.smean4_2,vgg.smean4_3, vgg.smean5_1,vgg.smean5_2,vgg.smean5_3],feed_dict={vgg.imgs: tp_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12]}) #layer, cat, batchim, featmap
@@ -565,14 +473,6 @@ if __name__ == '__main__':
                 tp_resps4[1,:,:,ai]=resp_list[8]; tp_resps4[2,:,:,ai]=resp_list[9];
                 tp_resps5[0,:,:,ai]=resp_list[10]; tp_resps5[1,:,:,ai]=resp_list[11];
                 tp_resps5[2,:,:,ai]=resp_list[12];
-                #averaged over images:
-                #tp_resps1[0,:,ai]=np.mean(resp_list[0],axis=0); tp_resps1[0,:,ai]=np.mean(resp_list[1],axis=0); 
-                #tp_resps2[0,:,ai]=np.mean(resp_list[2],axis=0); tp_resps2[1,:,ai]=np.mean(resp_list[3],axis=0); 
-                #tp_resps3[0,:,ai]=np.mean(resp_list[4],axis=0); tp_resps3[1,:,ai]=np.mean(resp_list[5],axis=0);
-                #tp_resps3[2,:,ai]=np.mean(resp_list[6],axis=0); tp_resps4[0,:,ai]=np.mean(resp_list[7],axis=0); 
-                #tp_resps4[1,:,ai]=np.mean(resp_list[8],axis=0); tp_resps4[2,:,ai]=np.mean(resp_list[9],axis=0);
-                #tp_resps5[0,:,ai]=np.mean(resp_list[10],axis=0); tp_resps5[1,:,ai]=np.mean(resp_list[11],axis=0);
-                #tp_resps5[2,:,ai]=np.mean(resp_list[12],axis=0);
                 resp_list = sess.run([vgg.smean1_1,vgg.smean1_2,vgg.smean2_1,vgg.smean2_2,vgg.smean3_1,vgg.smean3_2,vgg.smean3_3,vgg.smean4_1,vgg.smean4_2,vgg.smean4_3, vgg.smean5_1,vgg.smean5_2,vgg.smean5_3],feed_dict={vgg.imgs: tn_batch, vgg.a11:attnmats[0],vgg.a12:attnmats[1],vgg.a21:attnmats[2],vgg.a22:attnmats[3],vgg.a31:attnmats[4],vgg.a32:attnmats[5],vgg.a33:attnmats[6],vgg.a41:attnmats[7],vgg.a42:attnmats[8],vgg.a43:attnmats[9],vgg.a51:attnmats[10],vgg.a52:attnmats[11],vgg.a53:attnmats[12]}) #layer, cat, im, featmap
                 tn_resps1[0,:,:,ai]=resp_list[0]; tn_resps1[1,:,:,ai]=resp_list[1]; #layer, im, feat map, strg
                 tn_resps2[0,:,:,ai]=resp_list[2]; tn_resps2[1,:,:,ai]=resp_list[3]; 
@@ -581,21 +481,16 @@ if __name__ == '__main__':
                 tn_resps4[1,:,:,ai]=resp_list[8]; tn_resps4[2,:,:,ai]=resp_list[9];
                 tn_resps5[0,:,:,ai]=resp_list[10]; tn_resps5[1,:,:,ai]=resp_list[11];
                 tn_resps5[2,:,:,ai]=resp_list[12];
-                #averaged over images:
-                #tn_resps1[0,:,ai]=np.mean(resp_list[0],axis=0); tn_resps1[0,:,ai]=np.mean(resp_list[1],axis=0); 
-                #tn_resps2[0,:,ai]=np.mean(resp_list[2],axis=0); tn_resps2[1,:,ai]=np.mean(resp_list[3],axis=0); 
-                #tn_resps3[0,:,ai]=np.mean(resp_list[4],axis=0); tn_resps3[1,:,ai]=np.mean(resp_list[5],axis=0);
-                #tn_resps3[2,:,ai]=np.mean(resp_list[6],axis=0); tn_resps4[0,:,ai]=np.mean(resp_list[7],axis=0); 
-                #tn_resps4[1,:,ai]=np.mean(resp_list[8],axis=0); tn_resps4[2,:,ai]=np.mean(resp_list[9],axis=0);
-                #tn_resps5[0,:,ai]=np.mean(resp_list[10],axis=0); tn_resps5[1,:,ai]=np.mean(resp_list[11],axis=0);
-                tn_resps5[2,:,ai]=np.mean(resp_list[12],axis=0);
 
-     	         
-    np.savez(save_path+'/'+savstr+'perf.npz',TPscore,TNscore,astrgs)
 
-    if rec_activity:
-        alltp=[tp_resps1, tp_resps2,tp_resps3,tp_resps4,tp_resps5]
-        np.savez(save_path+'/'+savstr+'Pact.npz',alltp, astrgs)
-        alltn=[tn_resps1, tn_resps2,tn_resps3,tn_resps4,tn_resps5]
-        np.savez(save_path+'/'+savstr+'Nact.npz',alltn, astrgs)
-    print(alltp,TPscore)
+	np.savez(save_path+'/'+savstr+'perf.npz',TPscore, TNscore,astrgs)
+        if rec_activity:
+           alltp=[tp_resps1, tp_resps2,tp_resps3,tp_resps4,tp_resps5]
+           np.savez(save_path+'/'+savstr+'Pact.npz',alltp, astrgs)
+           alltn=[tn_resps1, tn_resps2,tn_resps3,tn_resps4,tn_resps5]
+           np.savez(save_path+'/'+savstr+'Nact.npz',alltn, astrgs)
+
+
+
+
+
