@@ -11,13 +11,14 @@
 ''' This file is used to run vgg16 on binary object detection tasks with attention applied according to the given parameters.
   It requires data files available on dryad.
   It saves performance broken down into true positives and true negatives and optionally saves activity of the network at intermediate layers.
+Run with python 2.7
 Contact: gracewlindsay@gmail.com
 '''
 
 
 import tensorflow as tf
 import numpy as np
-from scipy.misc import imread, imresize
+#from scipy.misc import imread, imresize
 from sklearn import svm
 import pickle
 
