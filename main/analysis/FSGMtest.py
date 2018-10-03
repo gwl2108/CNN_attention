@@ -10,7 +10,7 @@ def later_effect(lattn,TCs):
  allcoefslist=[]
  layinds=[0,0,1,1,2,2,2,3,3,3,4,4,4]; ilayi=[0,1,0,1,0,1,2,0,1,2,0,1,2]
 
- with open("featvecs_ORIgrats40Astd.txt", "rb") as fp: #ori tuning curves file
+ with open("featvecs_ORIgrats40Astd.txt", "rb") as fp: #ori tuning curves file (on dryad)
  	  oriTCs = pickle.load(fp)  
 
 
@@ -28,7 +28,7 @@ def later_effect(lattn,TCs):
 
 	
 	for oi in range(len(oris)):
-                #these files are in the ori_activity zip file on github
+                #these files are in the activity zip file on dryad
                 if TCs:
 		    hldr=np.load('FFrec_attnTCtrain'+str(oi*20)+'_L'+str(lattn)+'.npz') 
                 else:
